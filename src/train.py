@@ -12,7 +12,7 @@ DEVICE_INDEX = torch.cuda.current_device() if DEVICE.type == 'cuda' else None
 
 S_DIM = [6, 8]
 A_DIM = 6
-ACTOR_LR_RATE = 5e-5
+ACTOR_LR_RATE = 1e-4
 NUM_AGENTS = 16
 TRAIN_SEQ_LEN = 1000  # take as a train batch
 TRAIN_EPOCH = 155400
@@ -28,7 +28,7 @@ LOG_FILE = SUMMARY_DIR + '/log'
 if not os.path.exists(SUMMARY_DIR):
     os.makedirs(SUMMARY_DIR)
 
-NN_MODEL = './ppo/nn_model_ep_24600.pth'
+NN_MODEL = './ppo/nn_model_ep_33600.pth'
 
 
 def _infer_epoch_from_path(model_path):
