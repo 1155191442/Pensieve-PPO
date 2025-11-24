@@ -72,22 +72,25 @@ class Critic(nn.Module):
         return value
     
 class Network():
-    def __init__(self, state_dim, action_dim, learning_rate):
+    def __init__(self, state_dim, action_dim, learning_rate, device=None):
 
         self.s_dim = state_dim
         self.action_dim = action_dim
         self._entropy_weight = np.log(action_dim)
         self.H_target = 0.1
         self.PPO_TRAINING_EPO = 5
+        self.device = device or torch.device('cpu')
 
-        self.actor = Actor(state_dim, action_dim)
-        self.critic = Critic(state_dim, action_dim)
+        self.actor = Actor(state_dim, action_dim).to(self.device)
+        self.critic = Critic(state_dim, action_dim).to(self.device)
         self.lr_rate = learning_rate
         self.optimizer = optim.Adam(list(self.actor.parameters()) + \
                                     list(self.critic.parameters()), lr=learning_rate)
 
     def get_network_params(self):
-        return [self.actor.state_dict(), self.critic.state_dict()]
+        actor_state = {k: v.detach().cpu().clone() for k, v in self.actor.state_dict().items()}
+        critic_state = {k: v.detach().cpu().clone() for k, v in self.critic.state_dict().items()}
+        return [actor_state, critic_state]
     
     def set_network_params(self, input_network_params):
         actor_net_params, critic_net_params = input_network_params
@@ -99,10 +102,10 @@ class Network():
                torch.sum(pi_old * acts, dim=1, keepdim=True)
 
     def train(self, s_batch, a_batch, p_batch, v_batch, epoch):
-        s_batch = torch.from_numpy(s_batch).to(torch.float32)
-        a_batch = torch.from_numpy(a_batch).to(torch.float32)
-        p_batch = torch.from_numpy(p_batch).to(torch.float32)
-        v_batch = torch.from_numpy(v_batch).to(torch.float32)
+        s_batch = torch.from_numpy(s_batch).to(torch.float32).to(self.device)
+        a_batch = torch.from_numpy(a_batch).to(torch.float32).to(self.device)
+        p_batch = torch.from_numpy(p_batch).to(torch.float32).to(self.device)
+        v_batch = torch.from_numpy(v_batch).to(torch.float32).to(self.device)
 
         for _ in range(self.PPO_TRAINING_EPO):
             pi = self.actor.forward(s_batch)
@@ -130,12 +133,12 @@ class Network():
 
     def predict(self, input):
         with torch.no_grad():
-            input = torch.from_numpy(input).to(torch.float32)
+            input = torch.from_numpy(input).to(torch.float32).to(self.device)
             pi = self.actor.forward(input)[0]
-            return pi.numpy()
+            return pi.cpu().numpy()
 
     def load_model(self, nn_model):
-        actor_model_params, critic_model_params = torch.load(nn_model)
+        actor_model_params, critic_model_params = torch.load(nn_model, map_location=self.device)
         self.actor.load_state_dict(actor_model_params)
         self.critic.load_state_dict(critic_model_params)
 
@@ -150,8 +153,10 @@ class Network():
             # in this case, the terminal reward will be assigned as r_batch[-1]
             R_batch[-1] = r_batch[-1]  # terminal state
         else:
-            val = self.critic.forward(s_batch)
-            R_batch[-1] = val[-1]  # bootstrap from last state
+            s_tensor = torch.from_numpy(np.array(s_batch)).to(torch.float32).to(self.device)
+            with torch.no_grad():
+                bootstrap_value = self.critic.forward(s_tensor)[-1].item()
+            R_batch[-1] = bootstrap_value  # bootstrap from last state
 
         for t in reversed(range(len(r_batch) - 1)):
             R_batch[t] = r_batch[t] + GAMMA * R_batch[t + 1]
