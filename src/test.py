@@ -1,7 +1,7 @@
 import os
 import sys
-os.environ['CUDA_VISIBLE_DEVICES']='-1'
 import numpy as np
+import torch
 import load_trace
 #import a2c as network
 import ppo2 as network
@@ -26,6 +26,7 @@ LOG_FILE = './test_results/log_sim_ppo'
 TEST_TRACES = './test/'
 # log in format of time_stamp bit_rate buffer_size rebuffer_time chunk_size download_time reward
 NN_MODEL = sys.argv[1]
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
 def main():
 
@@ -43,7 +44,7 @@ def main():
 
 
     actor = network.Network(state_dim=[S_INFO, S_LEN], action_dim=A_DIM,
-        learning_rate=ACTOR_LR_RATE)
+        learning_rate=ACTOR_LR_RATE, device=DEVICE)
 
     # restore neural net parameters
     if NN_MODEL is not None:  # NN_MODEL is the path to file
@@ -151,4 +152,5 @@ def main():
 
 
 if __name__ == '__main__':
+    print(f"Evaluating on device: {DEVICE}")
     main()

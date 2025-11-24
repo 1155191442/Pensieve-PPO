@@ -6,8 +6,6 @@ from env import ABREnv
 import ppo2 as network
 import torch
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
-
 S_DIM = [6, 8]
 A_DIM = 6
 ACTOR_LR_RATE = 1e-4
@@ -21,6 +19,7 @@ MODEL_DIR = './models'
 TRAIN_TRACES = './train/'
 TEST_LOG_FOLDER = './test_results/'
 LOG_FILE = SUMMARY_DIR + '/log'
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # create result directory
 if not os.path.exists(SUMMARY_DIR):
@@ -82,7 +81,8 @@ def central_agent(net_params_queues, exp_queues):
     with open(LOG_FILE + '_test.txt', 'w') as test_log_file:
         actor = network.Network(state_dim=S_DIM, 
                                 action_dim=A_DIM,
-                                learning_rate=ACTOR_LR_RATE)
+                                learning_rate=ACTOR_LR_RATE,
+                                device=DEVICE)
 
         writer = SummaryWriter(SUMMARY_DIR)
 
@@ -130,7 +130,8 @@ def central_agent(net_params_queues, exp_queues):
 def agent(agent_id, net_params_queue, exp_queue):
     env = ABREnv(agent_id)
     actor = network.Network(state_dim=S_DIM, action_dim=A_DIM,
-                            learning_rate=ACTOR_LR_RATE)
+                            learning_rate=ACTOR_LR_RATE,
+                            device=DEVICE)
 
     # initial synchronization of the network parameters from the coordinator
     actor_net_params = net_params_queue.get()
@@ -195,4 +196,6 @@ def main():
 
 
 if __name__ == '__main__':
+    mp.set_start_method('spawn', force=True)
+    print(f"Training on device: {DEVICE}")
     main()
