@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 import numpy as np
 import load_trace
 #import a2c as network
@@ -24,10 +25,18 @@ SMOOTH_PENALTY = 1
 DEFAULT_QUALITY = 1  # default video quality without agent
 RANDOM_SEED = 42
 RAND_RANGE = 1000
-LOG_FILE = './test_results/log_sim_ppo'
+LOG_FILE = './test_results_on/log_sim_ppo'
 TEST_TRACES = './test/'
-# log in format of time_stamp bit_rate buffer_size rebuffer_time chunk_size download_time reward
+# log in format of time_stamp bit_rate buffer_size rebuffer_time chunk_size download_time entropy adapt_ms reward
 NN_MODEL = sys.argv[1]
+
+ONLINE_ADAPTATION = True
+ONLINE_PPO_STEPS = 1
+ONLINE_ADAPT_LR = 6e-5
+ONLINE_TRAINABLE_ACTOR = ['ctx', 'fc4_actor', 'pi_head']
+ONLINE_TRAINABLE_CRITIC = ['ctx', 'fc4_actor', 'val_head']
+# ONLINE_TRAINABLE_ACTOR = ['ctx']
+# ONLINE_TRAINABLE_CRITIC = ['ctx']
     
 def main():
 
@@ -53,6 +62,18 @@ def main():
         actor.load_model(NN_MODEL)
         print("Testing model restored.")
 
+    base_model_state = actor.get_network_params()
+
+    def reset_session_model():
+        actor.set_network_params(base_model_state)
+        if ONLINE_ADAPTATION:
+            actor.configure_trainable_params(
+                actor_modules=ONLINE_TRAINABLE_ACTOR,
+                critic_modules=ONLINE_TRAINABLE_CRITIC,
+                lr=ONLINE_ADAPT_LR)
+
+    reset_session_model()
+
     time_stamp = 0
 
     last_bit_rate = DEFAULT_QUALITY
@@ -67,6 +88,9 @@ def main():
     entropy_record = []
     entropy_ = 0.5
     video_count = 0
+    pending_state = None
+    pending_action_vec = None
+    pending_action_prob = None
     
     while True:  # serve video forever
         # the action is from the last decision
@@ -89,17 +113,6 @@ def main():
 
         last_bit_rate = bit_rate
 
-        # log time_stamp, bit_rate, buffer_size, reward
-        log_file.write(str(time_stamp / M_IN_K) + '\t' +
-                        str(VIDEO_BIT_RATE[bit_rate]) + '\t' +
-                        str(buffer_size) + '\t' +
-                        str(rebuf) + '\t' +
-                        str(video_chunk_size) + '\t' +
-                        str(delay) + '\t' +
-                        str(entropy_) + '\t' + 
-                        str(reward) + '\n')
-        log_file.flush()
-
         # retrieve previous state
         if len(s_batch) == 0:
             state = [np.zeros((S_INFO, S_LEN))]
@@ -117,9 +130,41 @@ def main():
         state[4, :A_DIM] = np.array(next_video_chunk_sizes) / M_IN_K / M_IN_K  # mega byte
         state[5, -1] = np.minimum(video_chunk_remain, CHUNK_TIL_VIDEO_END_CAP) / float(CHUNK_TIL_VIDEO_END_CAP)
 
+        current_state = np.array(state, copy=True)
+        adapt_time_ms = 0.0
+        if ONLINE_ADAPTATION and pending_state is not None:
+            start_time = time.perf_counter()
+            actor.online_adaptation_step(
+                pending_state,
+                pending_action_vec,
+                pending_action_prob,
+                reward,
+                current_state,
+                end_of_video,
+                num_updates=ONLINE_PPO_STEPS)
+            adapt_time_ms = (time.perf_counter() - start_time) * 1000.0
+
+        # log time_stamp, bit_rate, buffer_size, reward, adaptation time
+        log_file.write(str(time_stamp / M_IN_K) + '\t' +
+                        str(VIDEO_BIT_RATE[bit_rate]) + '\t' +
+                        str(buffer_size) + '\t' +
+                        str(rebuf) + '\t' +
+                        str(video_chunk_size) + '\t' +
+                        str(delay) + '\t' +
+                        str(entropy_) + '\t' +
+                        str(adapt_time_ms) + '\t' +
+                        str(reward) + '\n')
+        log_file.flush()
+
         action_prob = actor.predict(np.reshape(state, (1, S_INFO, S_LEN)))
         noise = np.random.gumbel(size=len(action_prob))
         bit_rate = np.argmax(np.log(action_prob) + noise)
+        action_vec = np.zeros(A_DIM)
+        action_vec[bit_rate] = 1
+
+        pending_state = np.array(state, copy=True)
+        pending_action_vec = action_vec.copy()
+        pending_action_prob = np.array(action_prob, copy=True)
         
         s_batch.append(state)
         entropy_ = -np.dot(action_prob, np.log(action_prob))
@@ -131,6 +176,11 @@ def main():
 
             last_bit_rate = DEFAULT_QUALITY
             bit_rate = DEFAULT_QUALITY  # use the default action here
+
+            reset_session_model()
+            pending_state = None
+            pending_action_vec = None
+            pending_action_prob = None
 
             del s_batch[:]
             del a_batch[:]

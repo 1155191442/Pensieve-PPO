@@ -1,19 +1,21 @@
 import multiprocessing as mp
 import numpy as np
 import os
+import re
 from torch.utils.tensorboard import SummaryWriter
 from env import ABREnv
 import ppo2 as network
 import torch
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+DEVICE_INDEX = torch.cuda.current_device() if DEVICE.type == 'cuda' else None
 
 S_DIM = [6, 8]
 A_DIM = 6
-ACTOR_LR_RATE = 1e-4
+ACTOR_LR_RATE = 5e-5
 NUM_AGENTS = 16
 TRAIN_SEQ_LEN = 1000  # take as a train batch
-TRAIN_EPOCH = 500000
+TRAIN_EPOCH = 155400
 MODEL_SAVE_INTERVAL = 300
 RANDOM_SEED = 42
 SUMMARY_DIR = './ppo'
@@ -26,7 +28,22 @@ LOG_FILE = SUMMARY_DIR + '/log'
 if not os.path.exists(SUMMARY_DIR):
     os.makedirs(SUMMARY_DIR)
 
-NN_MODEL = None    
+NN_MODEL = './ppo/nn_model_ep_24600.pth'
+
+
+def _infer_epoch_from_path(model_path):
+    if not model_path:
+        return None
+    match = re.search(r'_ep_(\d+)', os.path.basename(model_path))
+    if match:
+        return int(match.group(1))
+    return None
+
+
+def configure_process_device():
+    torch.set_num_threads(1)
+    if DEVICE_INDEX is not None:
+        torch.cuda.set_device(DEVICE_INDEX)
 
 def testing(epoch, nn_model, log_file):
     # clean up the test results folder
@@ -78,22 +95,37 @@ def central_agent(net_params_queues, exp_queues):
 
     assert len(net_params_queues) == NUM_AGENTS
     assert len(exp_queues) == NUM_AGENTS
+    configure_process_device()
     
-    with open(LOG_FILE + '_test.txt', 'w') as test_log_file:
-        actor = network.Network(state_dim=S_DIM, 
+    with open(LOG_FILE + '_test.txt', 'a') as test_log_file:
+        actor = network.Network(state_dim=S_DIM,
                                 action_dim=A_DIM,
-                                learning_rate=ACTOR_LR_RATE)
+                                learning_rate=ACTOR_LR_RATE,
+                                device=DEVICE)
 
         writer = SummaryWriter(SUMMARY_DIR)
 
         # restore neural net parameters
         nn_model = NN_MODEL
+        resume_epoch = -1
         if nn_model is not None:  # nn_model is the path to file
-            actor.load_model(nn_model)
-            print('Model restored.')
+            load_epoch = None
+            if os.path.exists(nn_model):
+                load_epoch = actor.load_model(nn_model)
+                if load_epoch is None:
+                    load_epoch = _infer_epoch_from_path(nn_model)
+                if load_epoch is not None:
+                    resume_epoch = load_epoch
+                    print(f'Model restored from epoch {resume_epoch}.')
+                else:
+                    print('Model restored (epoch unknown).')
+            else:
+                print(f'Checkpoint {nn_model} not found, starting from scratch.')
+        else:
+            print('Starting from scratch.')
         
         # while True:  # assemble experiences from agents, compute the gradients
-        for epoch in range(TRAIN_EPOCH):
+        for epoch in range(resume_epoch + 1, TRAIN_EPOCH):
             # synchronize the network parameters of work agent
             actor_net_params = actor.get_network_params()
             for i in range(NUM_AGENTS):
@@ -115,10 +147,11 @@ def central_agent(net_params_queues, exp_queues):
             
             if epoch % MODEL_SAVE_INTERVAL == 0:
                 # Save the neural net parameters to disk.
-                actor.save_model(SUMMARY_DIR + '/nn_model_ep_' + str(epoch) + '.pth')
+                checkpoint_path = SUMMARY_DIR + '/nn_model_ep_' + str(epoch) + '.pth'
+                actor.save_model(checkpoint_path, epoch=epoch)
                 
                 avg_reward, avg_entropy = testing(epoch,
-                    SUMMARY_DIR + '/nn_model_ep_' + str(epoch) + '.pth', 
+                    checkpoint_path, 
                     test_log_file)
 
                 writer.add_scalar('Entropy Weight', actor._entropy_weight, epoch)
@@ -128,9 +161,11 @@ def central_agent(net_params_queues, exp_queues):
 
 
 def agent(agent_id, net_params_queue, exp_queue):
+    configure_process_device()
     env = ABREnv(agent_id)
     actor = network.Network(state_dim=S_DIM, action_dim=A_DIM,
-                            learning_rate=ACTOR_LR_RATE)
+                            learning_rate=ACTOR_LR_RATE,
+                            device=DEVICE)
 
     # initial synchronization of the network parameters from the coordinator
     actor_net_params = net_params_queue.get()
@@ -165,9 +200,8 @@ def agent(agent_id, net_params_queue, exp_queue):
         actor.set_network_params(actor_net_params)
 
 def main():
-
+    configure_process_device()
     np.random.seed(RANDOM_SEED)
-    torch.set_num_threads(1)
     # inter-process communication queues
     net_params_queues = []
     exp_queues = []
@@ -195,4 +229,5 @@ def main():
 
 
 if __name__ == '__main__':
+    mp.set_start_method('spawn', force=True)
     main()

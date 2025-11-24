@@ -1,4 +1,5 @@
 import os
+import shutil
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.pyplot import plot, savefig
@@ -20,6 +21,18 @@ SMOOTH_P = 1
 # labels = SCHEMES#, 'netllm']
 LW = 1.5
 LOG = './baselines/'
+# BASE_SCHEMES = ['bb', 'rl', 'mpc', 'cmc', 'bola', 'netllm', 'quetra', 'genet', 'ppo']
+BASE_SCHEMES = ['ppo']
+PLOT_SCHEMES = BASE_SCHEMES + ['ppog']
+# SCHEME_LABELS = ['BBA', 'Pensieve', 'RobustMPC', 'Comyco', 'BOLA', 'NetLLM', 'QUETRA', 'Genet', 'Pen-PPO', 'Pen-PPOg']
+# SCHEME_MARKERS = ['o','x','v','^','>','<','s','p','*','h']
+# SCHEME_COLORS = ['#4E79A7', '#F28E2B', '#E15759', '#76B7B2', '#59A14F', '#EDC948', '#B07AA1', '#FF9DA7', '#9C755F', '#BAB0AC']
+SCHEME_LABELS = ['Pen-PPO', 'Pen-PPOg']
+SCHEME_MARKERS = ['*','h']
+SCHEME_COLORS = ['#9C755F', '#BAB0AC']
+
+SCHEMES_TO_SUFFIX = ['ppo']
+SCHEME_SUFFIX = 'g'
 
 def mean_confidence_interval(data, confidence=0.95):
     a = 1.0 * np.array(data)
@@ -36,13 +49,27 @@ def inlist(filename, traces):
             break
     return ret
 
-def bitrate_smo(outputs):
-    SCHEMES = ['bb', 'rl', 'mpc', 'cmc', 'bola', 'netllm', 'quetra', 'genet', 'ppo']
-    labels = ['BBA', 'Pensieve', 'RobustMPC', 'Comyco', 'BOLA', 'NetLLM', 'QUETRA', 'Genet', 'Pen-PPO']
-    markers = ['o','x','v','^','>','<','s','p','*','h','H','D','d','1']
-    lines = ['-', '--', '-.', ':', '-', '--', '-.', ':', '-']
-    modern_academic_colors = ['#4E79A7', '#F28E2B', '#E15759', '#76B7B2', '#59A14F', '#EDC948', '#B07AA1', '#FF9DA7', '#9C755F']
+def copy_and_suffix_test_results(src_dir='./test_results', dst_dir=LOG, suffix=SCHEME_SUFFIX):
+    if not os.path.isdir(src_dir):
+        return
 
+    os.makedirs(dst_dir, exist_ok=True)
+    for filename in os.listdir(src_dir):
+        src_path = os.path.join(src_dir, filename)
+        if not os.path.isfile(src_path):
+            continue
+
+        tagged_name = filename
+        for scheme in SCHEMES_TO_SUFFIX:
+            needle = f'_{scheme}_'
+            if needle in tagged_name:
+                tagged_name = tagged_name.replace(needle, f'_{scheme + suffix}_', 1)
+                break
+
+        dst_path = os.path.join(dst_dir, tagged_name)
+        shutil.copy2(src_path, dst_path)
+
+def bitrate_smo(outputs):
     reward_all = {}
 
     plt.rcParams['axes.labelsize'] = 15
@@ -52,7 +79,7 @@ def bitrate_smo(outputs):
     plt.subplots_adjust(left=0.14, bottom=0.16, right=0.96, top=0.96)
 
     max_bitrate = 0
-    for idx, scheme in enumerate(SCHEMES):
+    for idx, scheme in enumerate(PLOT_SCHEMES):
         mean_arr = []
         mean_bit = []
         mean_rebuf = []
@@ -85,8 +112,8 @@ def bitrate_smo(outputs):
         
         ax.errorbar(mean_rebuf_, mean_, \
             xerr= high_rebuf_ - mean_rebuf_, yerr=high_ - mean_, \
-            color = modern_academic_colors[idx],
-            marker = markers[idx], markersize = 10, label = labels[idx],
+            color = SCHEME_COLORS[idx],
+            marker = SCHEME_MARKERS[idx], markersize = 10, label = SCHEME_LABELS[idx],
             capsize=4)
 
         out_str = '%s %.2f %.2f %.2f %.2f %.2f %.2f'%(scheme, mean_, low_, high_, mean_rebuf_, low_rebuf_, high_rebuf_)
@@ -109,12 +136,6 @@ def bitrate_smo(outputs):
 
 def smo_rebuf(outputs):
     # os.system('cp ./test_results/* ' + LOG)
-    SCHEMES = ['bb', 'rl', 'mpc', 'cmc', 'bola', 'netllm', 'quetra', 'genet', 'ppo']
-    labels = ['BBA', 'Pensieve', 'RobustMPC', 'Comyco', 'BOLA', 'NetLLM', 'QUETRA', 'Genet', 'Pen-PPO']
-    markers = ['o','x','v','^','>','<','s','p','*','h','H','D','d','1']
-    lines = ['-', '--', '-.', ':', '-', '--', '-.', ':', '-']
-    modern_academic_colors = ['#4E79A7', '#F28E2B', '#E15759', '#76B7B2', '#59A14F', '#EDC948', '#B07AA1', '#FF9DA7', '#9C755F']
-
     reward_all = {}
 
     plt.rcParams['axes.labelsize'] = 15
@@ -124,7 +145,7 @@ def smo_rebuf(outputs):
     plt.subplots_adjust(left=0.14, bottom=0.16, right=0.96, top=0.96)
 
     max_bitrate = 0
-    for idx, scheme in enumerate(SCHEMES):
+    for idx, scheme in enumerate(PLOT_SCHEMES):
         mean_arr = []
         mean_bit = []
         mean_rebuf = []
@@ -157,8 +178,8 @@ def smo_rebuf(outputs):
         
         ax.errorbar(mean_rebuf_, mean_, \
             xerr= high_rebuf_ - mean_rebuf_, yerr=high_ - mean_, \
-            color = modern_academic_colors[idx],
-            marker = markers[idx], markersize = 10, label = labels[idx],
+            color = SCHEME_COLORS[idx],
+            marker = SCHEME_MARKERS[idx], markersize = 10, label = SCHEME_LABELS[idx],
             capsize=4)
 
         out_str = '%s %.2f %.2f %.2f %.2f %.2f %.2f'%(scheme, mean_, low_, high_, mean_rebuf_, low_rebuf_, high_rebuf_)
@@ -181,12 +202,6 @@ def smo_rebuf(outputs):
 
 def bitrate_rebuf(outputs):
     # os.system('cp ./test_results/* ' + LOG)
-    SCHEMES = ['bb', 'rl', 'mpc', 'cmc', 'bola', 'netllm', 'quetra', 'genet', 'ppo']
-    labels = ['BBA', 'Pensieve', 'RobustMPC', 'Comyco', 'BOLA', 'NetLLM', 'QUETRA', 'Genet', 'Pen-PPO']
-    markers = ['o','x','v','^','>','<','s','p','*','h','H','D','d','1']
-    lines = ['-', '--', '-.', ':', '-', '--', '-.', ':', '-']
-    modern_academic_colors = ['#4E79A7', '#F28E2B', '#E15759', '#76B7B2', '#59A14F', '#EDC948', '#B07AA1', '#FF9DA7', '#9C755F']
-
     reward_all = {}
 
     plt.rcParams['axes.labelsize'] = 15
@@ -196,7 +211,7 @@ def bitrate_rebuf(outputs):
     plt.subplots_adjust(left=0.14, bottom=0.16, right=0.96, top=0.96)
 
     max_bitrate = 0
-    for idx, scheme in enumerate(SCHEMES):
+    for idx, scheme in enumerate(PLOT_SCHEMES):
         mean_arr = []
         mean_bit = []
         mean_rebuf = []
@@ -230,8 +245,8 @@ def bitrate_rebuf(outputs):
         
         ax.errorbar(mean_rebuf_, mean_, \
             xerr= high_rebuf_ - mean_rebuf_, yerr=high_ - mean_, \
-            color = modern_academic_colors[idx],
-            marker = markers[idx], markersize = 10, label = labels[idx],
+            color = SCHEME_COLORS[idx],
+            marker = SCHEME_MARKERS[idx], markersize = 10, label = SCHEME_LABELS[idx],
             capsize=4)
 
         out_str = '%s %.2f %.2f %.2f %.2f %.2f %.2f'%(scheme, mean_, low_, high_, mean_rebuf_, low_rebuf_, high_rebuf_)
@@ -253,10 +268,6 @@ def bitrate_rebuf(outputs):
 
 def qoe_cdf(outputs):
     # os.system('cp ./test_results/* ' + LOG)
-    SCHEMES = ['bb', 'rl', 'mpc', 'cmc', 'bola', 'netllm', 'quetra', 'genet', 'ppo']
-    labels = ['BBA', 'Pensieve', 'RobustMPC', 'Comyco', 'BOLA', 'NetLLM', 'QUETRA', 'Genet', 'Pen-PPO']
-    modern_academic_colors = ['#4E79A7', '#F28E2B', '#E15759', '#76B7B2', '#59A14F', '#EDC948', '#B07AA1', '#FF9DA7', '#9C755F']
-
     reward_all = {}
 
     plt.rcParams['axes.labelsize'] = 15
@@ -266,7 +277,7 @@ def qoe_cdf(outputs):
     plt.subplots_adjust(left=0.06, bottom=0.16, right=0.96, top=0.96)
 
     max_bitrate = 0
-    for idx, scheme in enumerate(SCHEMES):
+    for idx, scheme in enumerate(PLOT_SCHEMES):
         mean_arr = []
         for files in os.listdir(LOG):
             if scheme in files:
@@ -286,8 +297,8 @@ def qoe_cdf(outputs):
         cumulative = np.cumsum(values)
         cumulative = cumulative / np.max(cumulative)
         ax.plot(base[:-1], cumulative, '-', \
-                color=modern_academic_colors[idx], lw=LW, \
-                label='%s: %.2f' % (labels[idx], np.mean(mean_arr)))
+            color=SCHEME_COLORS[idx], lw=LW, \
+            label='%s: %.2f' % (SCHEME_LABELS[idx], np.mean(mean_arr)))
 
         print('%s, %.2f' % (scheme, np.mean(mean_arr)))
     ax.set_xlabel('QoE')
@@ -305,7 +316,7 @@ def qoe_cdf(outputs):
     plt.close()
 
 if __name__ == '__main__':
-    os.system('cp ./test_results/* ' + LOG)
+    copy_and_suffix_test_results()
     bitrate_rebuf('baselines-br')
     smo_rebuf('baselines-sr')
     bitrate_smo('baselines-bs')
