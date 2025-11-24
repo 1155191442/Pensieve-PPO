@@ -32,7 +32,7 @@ NN_MODEL = sys.argv[1]
 
 ONLINE_ADAPTATION = True
 ONLINE_PPO_STEPS = 1
-ONLINE_ADAPT_LR = 6e-5
+ONLINE_ADAPT_LR = 1e-5
 ONLINE_TRAINABLE_ACTOR = ['ctx', 'fc4_actor', 'pi_head']
 ONLINE_TRAINABLE_CRITIC = ['ctx', 'fc4_actor', 'val_head']
 # ONLINE_TRAINABLE_ACTOR = ['ctx']

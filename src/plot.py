@@ -23,16 +23,18 @@ LW = 1.5
 LOG = './baselines/'
 # BASE_SCHEMES = ['bb', 'rl', 'mpc', 'cmc', 'bola', 'netllm', 'quetra', 'genet', 'ppo']
 BASE_SCHEMES = ['ppo']
-PLOT_SCHEMES = BASE_SCHEMES + ['ppog']
+PLOT_SCHEMES = BASE_SCHEMES + ['ppog', 'ppoo']
 # SCHEME_LABELS = ['BBA', 'Pensieve', 'RobustMPC', 'Comyco', 'BOLA', 'NetLLM', 'QUETRA', 'Genet', 'Pen-PPO', 'Pen-PPOg']
 # SCHEME_MARKERS = ['o','x','v','^','>','<','s','p','*','h']
 # SCHEME_COLORS = ['#4E79A7', '#F28E2B', '#E15759', '#76B7B2', '#59A14F', '#EDC948', '#B07AA1', '#FF9DA7', '#9C755F', '#BAB0AC']
-SCHEME_LABELS = ['Pen-PPO', 'Pen-PPOg']
-SCHEME_MARKERS = ['*','h']
-SCHEME_COLORS = ['#9C755F', '#BAB0AC']
+SCHEME_LABELS = ['Pen-PPO', 'Pen-PPOg', 'Pen-PPOo']
+SCHEME_MARKERS = ['*','h','o']
+SCHEME_COLORS = ['#9C755F', '#BAB0AC', '#4E79A7']
 
 SCHEMES_TO_SUFFIX = ['ppo']
 SCHEME_SUFFIX = 'g'
+ONLINE_SCHEME_SUFFIX = 'o'
+ONLINE_TEST_RESULTS_DIR = './test_results_on'
 
 def mean_confidence_interval(data, confidence=0.95):
     a = 1.0 * np.array(data)
@@ -63,11 +65,40 @@ def copy_and_suffix_test_results(src_dir='./test_results', dst_dir=LOG, suffix=S
         for scheme in SCHEMES_TO_SUFFIX:
             needle = f'_{scheme}_'
             if needle in tagged_name:
-                tagged_name = tagged_name.replace(needle, f'_{scheme + suffix}_', 1)
+                replacement = f'_{scheme + suffix}_' if suffix else needle
+                tagged_name = tagged_name.replace(needle, replacement, 1)
                 break
 
         dst_path = os.path.join(dst_dir, tagged_name)
         shutil.copy2(src_path, dst_path)
+
+
+def report_online_adapt_time(log_dir=LOG, scheme='ppoo'):
+    if not os.path.isdir(log_dir):
+        print(f'Log directory {log_dir} does not exist; cannot compute adaptation time stats.')
+        return
+
+    adapt_times = []
+    for filename in os.listdir(log_dir):
+        if scheme not in filename:
+            continue
+        file_path = os.path.join(log_dir, filename)
+        if not os.path.isfile(file_path):
+            continue
+        with open(file_path, 'r') as f:
+            for line in f:
+                sp = line.split()
+                if len(sp) < 9:
+                    continue
+                try:
+                    adapt_times.append(float(sp[-2]))
+                except ValueError:
+                    continue
+
+    if adapt_times:
+        print(f'Average online adaptation time ({scheme}): {np.mean(adapt_times):.2f} ms over {len(adapt_times)} steps')
+    else:
+        print(f'No adaptation time entries found for scheme {scheme}.')
 
 def bitrate_smo(outputs):
     reward_all = {}
@@ -316,7 +347,9 @@ def qoe_cdf(outputs):
     plt.close()
 
 if __name__ == '__main__':
-    copy_and_suffix_test_results()
+    copy_and_suffix_test_results('./test_results', suffix=SCHEME_SUFFIX)
+    copy_and_suffix_test_results(ONLINE_TEST_RESULTS_DIR, suffix=ONLINE_SCHEME_SUFFIX)
+    report_online_adapt_time()
     bitrate_rebuf('baselines-br')
     smo_rebuf('baselines-sr')
     bitrate_smo('baselines-bs')
